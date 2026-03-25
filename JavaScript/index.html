@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Netio DSL - Live Playground</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
+
+  /* Header */
+  .topbar {
+    background: #161b22;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 1px solid #30363d;
+    flex-shrink: 0;
+  }
+  .topbar h1 { font-size: 16px; color: #58a6ff; font-weight: 600; white-space: nowrap; }
+  .topbar select, .topbar input, .topbar button {
+    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    padding: 5px 12px; border-radius: 6px; font-size: 13px;
+  }
+  .topbar button { cursor: pointer; }
+  .topbar button:hover { background: #30363d; }
+  .topbar .sep { width: 1px; height: 24px; background: #30363d; }
+  .topbar label { font-size: 12px; color: #8b949e; }
+  .status { margin-left: auto; font-size: 12px; padding: 4px 10px; border-radius: 12px; }
+  .status.ok { background: #238636; color: #fff; }
+  .status.err { background: #da3633; color: #fff; }
+
+  /* Main layout */
+  .main { flex: 1; display: flex; overflow: hidden; }
+
+  /* Left: editor */
+  .editor-wrap {
+    width: 42%;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #30363d;
+  }
+  .editor-label {
+    background: #161b22; padding: 6px 16px; font-size: 12px; color: #8b949e;
+    border-bottom: 1px solid #30363d; display: flex; justify-content: space-between;
+  }
+  #editor {
+    flex: 1; background: #0d1117; color: #e6edf3; border: none; padding: 16px;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 14px; line-height: 1.6; resize: none; outline: none;
+    tab-size: 2; overflow: auto;
+  }
+
+  /* Right: output panels */
+  .output-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    flex-shrink: 0;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    padding: 8px 18px; font-size: 13px; cursor: pointer;
+    color: #8b949e; border: none; background: none;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: #c9d1d9; }
+  .tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+
+  /* Output content */
+  .output-content {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* AST tree */
+  .ast-node { margin-left: 20px; }
+  .ast-type { color: #d2a8ff; font-weight: 600; }
+  .ast-key { color: #7ee787; }
+  .ast-val { color: #a5d6ff; }
+  .ast-pos { color: #484f58; font-size: 11px; }
+  .ast-bracket { color: #8b949e; }
+  .ast-toggle { cursor: pointer; user-select: none; }
+  .ast-toggle:hover { text-decoration: underline; }
+
+  /* Colored output */
+  .c-key { color: #7ee787; }
+  .c-str { color: #a5d6ff; }
+  .c-num { color: #79c0ff; }
+  .c-bool { color: #ff7b72; }
+  .c-null { color: #484f58; }
+  .c-bracket { color: #8b949e; }
+  .c-err { color: #f85149; }
+  .c-warn { color: #d29922; }
+  .c-ok { color: #3fb950; }
+  .c-add { color: #3fb950; }
+  .c-rem { color: #f85149; }
+  .c-mod { color: #d29922; }
+
+  .token-row { display: flex; gap: 12px; padding: 1px 0; }
+  .token-type { color: #d2a8ff; min-width: 80px; }
+  .token-lit { color: #a5d6ff; }
+  .token-pos { color: #484f58; min-width: 70px; }
+
+  .lint-row { padding: 2px 0; }
+
+  .env-key { color: #7ee787; }
+  .env-eq { color: #8b949e; }
+  .env-val { color: #a5d6ff; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Netio DSL</h1>
+  <div class="sep"></div>
+  <select id="examples">
+    <option value="">Ornekler</option>
+    <option value="simple">simple.conf</option>
+    <option value="logging">logging.conf (path chaining)</option>
+    <option value="servers">servers.conf (structured list)</option>
+    <option value="extends">extends.conf (inheritance)</option>
+  </select>
+  <div class="sep"></div>
+  <label>ENV prefix:</label>
+  <input id="prefix" type="text" value="APP" style="width:70px" />
+  <div id="status" class="status ok">OK</div>
+</div>
+
+<div class="main">
+  <div class="editor-wrap">
+    <div class="editor-label">
+      <span>DSL Input</span>
+      <span id="cursor-pos">L1:C1</span>
+    </div>
+    <textarea id="editor" spellcheck="false">app myservice:
+  database:
+    host = "db.example.com"
+    password = "secret"
+    port = 5432
+    user = "app"
+  features:
+    - enable-login
+    - enable-cache
+  replicas = 3
+  version = "1.2.3"
+</textarea>
+  </div>
+
+  <div class="output-area">
+    <div class="tabs">
+      <button class="tab-btn active" data-t="json">JSON</button>
+      <button class="tab-btn" data-t="ast">AST</button>
+      <button class="tab-btn" data-t="tokens">Tokens</button>
+      <button class="tab-btn" data-t="env">ENV</button>
+      <button class="tab-btn" data-t="netio">Netio</button>
+      <button class="tab-btn" data-t="lint">Lint</button>
+      <button class="tab-btn" data-t="diff">Diff</button>
+    </div>
+    <div class="output-content" id="out"></div>
+  </div>
+</div>
+
+<script src="netio.js"></script>
+<script>
+(function () {
+  var editor = document.getElementById("editor");
+  var out = document.getElementById("out");
+  var statusEl = document.getElementById("status");
+  var cursorEl = document.getElementById("cursor-pos");
+  var prefixEl = document.getElementById("prefix");
+  var examplesEl = document.getElementById("examples");
+  var tabBtns = document.querySelectorAll(".tab-btn");
+  var tab = "json";
+  var prevSrc = null;
+
+  var EXAMPLES = {
+    simple: 'app myservice:\n  database:\n    host = "db.example.com"\n    password = "secret"\n    port = 5432\n    user = "app"\n  features:\n    - enable-login\n    - enable-cache\n  replicas = 3\n  version = "1.2.3"\n',
+    logging: 'logging:\n  level = "info"\n\nlogging -> output -> file:\n  path = "/var/log/myservice.log"\n\nlogging -> output -> console:\n  enabled = true\n',
+    servers: 'servers:\n  - name = "web-1"\n    ip = "10.0.0.1"\n    roles:\n      - web\n      - cache\n  - name = "web-2"\n    ip = "10.0.0.2"\n    roles:\n      - web\n',
+    extends: 'app base-app:\n  replicas = 1\n  enabled = true\n  database:\n    port = 5432\n    user = "app"\n    pool-size = 10\n\napp myservice -> extends base-app:\n  replicas = 5\n  database -> host = "prod-db.example.com"\n  database -> password = "s3cr3t"\n\napp staging-service -> extends base-app:\n  replicas = 2\n  database -> host = "staging-db.example.com"\n'
+  };
+
+  // Tab switching
+  tabBtns.forEach(function (b) {
+    b.addEventListener("click", function () {
+      tabBtns.forEach(function (x) { x.classList.remove("active"); });
+      b.classList.add("active");
+      tab = b.dataset.t;
+      prevSrc = null;
+      render();
+    });
+  });
+
+  // Example loader
+  examplesEl.addEventListener("change", function () {
+    if (EXAMPLES[this.value]) { editor.value = EXAMPLES[this.value]; render(); }
+    this.selectedIndex = 0;
+  });
+
+  // Live update
+  editor.addEventListener("input", render);
+  prefixEl.addEventListener("input", function () { if (tab === "env") render(); });
+
+  // Cursor position
+  editor.addEventListener("keyup", updateCursor);
+  editor.addEventListener("click", updateCursor);
+  function updateCursor() {
+    var v = editor.value, s = editor.selectionStart;
+    var lines = v.substring(0, s).split("\n");
+    cursorEl.textContent = "L" + lines.length + ":C" + lines[lines.length - 1].length;
+  }
+
+  // Tab key inserts 2 spaces
+  editor.addEventListener("keydown", function (e) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      var s = this.selectionStart, end = this.selectionEnd;
+      this.value = this.value.substring(0, s) + "  " + this.value.substring(end);
+      this.selectionStart = this.selectionEnd = s + 2;
+      render();
+    }
+  });
+
+  function render() {
+    var src = editor.value;
+    if (src === prevSrc) return;
+    prevSrc = src;
+
+    try {
+      if (tab === "tokens") return renderTokens(src);
+      if (tab === "ast") return renderAST(src);
+      if (tab === "lint") return renderLint(src);
+      if (tab === "diff") return renderDiff(src);
+
+      var cfg = Netio.parseString(src);
+      setOk();
+
+      if (tab === "json") renderJSON(cfg);
+      else if (tab === "env") renderENV(cfg);
+      else if (tab === "netio") renderNetio(cfg);
+    } catch (e) {
+      setErr(e.message);
+      out.innerHTML = '<span class="c-err">' + esc(e.message) + '</span>';
+    }
+  }
+
+  // ---- Renderers ----
+
+  function renderJSON(cfg) {
+    out.innerHTML = syntaxHighlightJSON(JSON.stringify(cfg, null, 2));
+  }
+
+  function renderENV(cfg) {
+    var env = Netio.toENV(cfg, prefixEl.value);
+    out.innerHTML = env.split("\n").map(function (line) {
+      var idx = line.indexOf("=");
+      if (idx === -1) return esc(line);
+      return '<span class="env-key">' + esc(line.substring(0, idx)) + '</span>' +
+             '<span class="env-eq">=</span>' +
+             '<span class="env-val">' + esc(line.substring(idx + 1)) + '</span>';
+    }).join("\n");
+  }
+
+  function renderNetio(cfg) {
+    out.textContent = Netio.toNetio(cfg);
+  }
+
+  function renderTokens(src) {
+    try {
+      var tokens = Netio.tokenise(src);
+      setOk();
+      out.innerHTML = tokens.map(function (t) {
+        return '<div class="token-row">' +
+          '<span class="token-pos">L' + t.line + ':C' + t.col + '</span>' +
+          '<span class="token-type">' + Netio.tokenName(t.type) + '</span>' +
+          '<span class="token-lit">' + esc(JSON.stringify(t.literal)) + '</span>' +
+          '</div>';
+      }).join("");
+    } catch (e) {
+      setErr(e.message);
+      out.innerHTML = '<span class="c-err">' + esc(e.message) + '</span>';
+    }
+  }
+
+  function renderAST(src) {
+    try {
+      var result = Netio.parseAST(src);
+      if (result.errors.length > 0) {
+        setErr(result.errors[0].message);
+      } else {
+        setOk();
+      }
+      out.innerHTML = astToHTML(result.file, 0);
+    } catch (e) {
+      setErr(e.message);
+      out.innerHTML = '<span class="c-err">' + esc(e.message) + '</span>';
+    }
+  }
+
+  function renderLint(src) {
+    try {
+      var issues = Netio.lint(src);
+      if (issues.length === 0) {
+        setOk();
+        out.innerHTML = '<span class="c-ok">Sorun bulunamadi.</span>';
+      } else {
+        if (Netio.issuesHasErrors(issues)) setErr(issues.length + " issue");
+        else { statusEl.textContent = issues.length + " uyari"; statusEl.className = "status err"; }
+        out.innerHTML = issues.map(function (i) {
+          var cls = i.severity === Netio.SEVERITY_ERROR ? "c-err" : "c-warn";
+          var sev = i.severity === Netio.SEVERITY_ERROR ? "ERROR" : "WARN";
+          return '<div class="lint-row"><span class="' + cls + '">[' + sev + '] ' +
+            esc(i.rule) + '</span> <span class="ast-pos">L' + i.pos.line + ':C' + i.pos.col +
+            '</span> ' + esc(i.message) + '</div>';
+        }).join("");
+      }
+    } catch (e) {
+      setErr(e.message);
+      out.innerHTML = '<span class="c-err">' + esc(e.message) + '</span>';
+    }
+  }
+
+  function renderDiff(src) {
+    try {
+      // Split by === separator, or use first half vs second half
+      var parts = src.split(/\n===+\n/);
+      if (parts.length < 2) {
+        setOk();
+        out.innerHTML = '<span class="c-warn">Diff icin iki config yazin, araya === satirini koyun.\n\nOrnek:</span>\n\n' +
+          esc('app myservice:\n  version = "1.0"\n  replicas = 2\n\n===\n\napp myservice:\n  version = "2.0"\n  replicas = 5\n  enabled = true');
+        return;
+      }
+      var cfg1 = Netio.parseString(parts[0].trim());
+      var cfg2 = Netio.parseString(parts[1].trim());
+      var changes = Netio.diff(cfg1, cfg2);
+      var summary = Netio.diffSummary(changes);
+      setOk();
+
+      var html = '<span class="ast-type">Ozet: ' + esc(summary) + '</span>\n\n';
+      if (changes.length === 0) {
+        html += '<span class="c-ok">Fark yok.</span>';
+      } else {
+        html += changes.map(function (c) {
+          if (c.kind === Netio.CHANGE_ADDED)
+            return '<span class="c-add">+ ' + esc(c.path) + ' = ' + esc(fmtVal(c.newValue)) + '</span>';
+          if (c.kind === Netio.CHANGE_REMOVED)
+            return '<span class="c-rem">- ' + esc(c.path) + ' = ' + esc(fmtVal(c.oldValue)) + '</span>';
+          return '<span class="c-mod">~ ' + esc(c.path) + ': ' + esc(fmtVal(c.oldValue)) + ' \u2192 ' + esc(fmtVal(c.newValue)) + '</span>';
+        }).join("\n");
+      }
+      out.innerHTML = html;
+    } catch (e) {
+      setErr(e.message);
+      out.innerHTML = '<span class="c-err">' + esc(e.message) + '</span>';
+    }
+  }
+
+  // ---- AST renderer ----
+
+  function astToHTML(node, depth) {
+    if (!node) return '<span class="c-null">null</span>';
+    var indent = rep("  ", depth);
+    var h = "";
+
+    if (node.type === "File") {
+      h += indent + '<span class="ast-type">File</span>\n';
+      if (node.includes.length > 0) {
+        h += indent + '  <span class="ast-key">includes:</span>\n';
+        node.includes.forEach(function (inc) { h += astToHTML(inc, depth + 2); });
+      }
+      if (node.statements.length > 0) {
+        h += indent + '  <span class="ast-key">statements:</span>\n';
+        node.statements.forEach(function (s) { h += astToHTML(s, depth + 2); });
+      }
+    } else if (node.type === "Block") {
+      h += indent + '<span class="ast-type">Block</span> <span class="ast-key">' + esc(node.path.join(" -> ")) + '</span>';
+      if (node.extendsTarget) h += ' <span class="c-warn">extends ' + esc(node.extendsTarget) + '</span>';
+      h += ' <span class="ast-pos">L' + node.pos.line + '</span>\n';
+      node.body.forEach(function (s) { h += astToHTML(s, depth + 1); });
+    } else if (node.type === "Assignment") {
+      h += indent + '<span class="ast-type">Assign</span> <span class="ast-key">' + esc(node.path.join(" -> ")) + '</span>';
+      h += ' = ' + astValueStr(node.value);
+      h += ' <span class="ast-pos">L' + node.pos.line + '</span>\n';
+    } else if (node.type === "ListBlock") {
+      h += indent + '<span class="ast-type">List</span> <span class="ast-key">' + esc(node.path.join(" -> ")) + '</span>';
+      h += ' <span class="ast-pos">L' + node.pos.line + '</span>\n';
+      node.items.forEach(function (item, i) {
+        if (item.inline) {
+          h += indent + '  <span class="c-bracket">-</span> ' + astValueStr(item.inline) + '\n';
+        } else {
+          h += indent + '  <span class="c-bracket">-</span> <span class="ast-type">{structured}</span>\n';
+          item.fields.forEach(function (f) { h += astToHTML(f, depth + 2); });
+        }
+      });
+    } else if (node.type === "Include") {
+      h += indent + '<span class="ast-type">Include</span> <span class="ast-val">"' + esc(node.path) + '"</span>\n';
+    }
+    return h;
+  }
+
+  function astValueStr(v) {
+    if (!v) return '<span class="c-null">null</span>';
+    if (v.type === "StringValue") return '<span class="c-str">"' + esc(v.v) + '"</span>';
+    if (v.type === "IntValue") return '<span class="c-num">' + v.v + '</span>';
+    if (v.type === "FloatValue") return '<span class="c-num">' + v.v + '</span>';
+    if (v.type === "BoolValue") return '<span class="c-bool">' + v.v + '</span>';
+    if (v.type === "IPCIDRValue") return '<span class="c-num">' + esc(v.v) + '</span>';
+    return esc(JSON.stringify(v));
+  }
+
+  // ---- JSON syntax highlighter ----
+
+  function syntaxHighlightJSON(json) {
+    return json.replace(/("(\\.|[^"\\])*")\s*:/g, '<span class="c-key">$1</span>:')
+               .replace(/:\s*("(\\.|[^"\\])*")/g, ': <span class="c-str">$1</span>')
+               .replace(/:\s*(\d+\.?\d*)/g, ': <span class="c-num">$1</span>')
+               .replace(/:\s*(true|false)/g, ': <span class="c-bool">$1</span>')
+               .replace(/:\s*(null)/g, ': <span class="c-null">$1</span>')
+               .replace(/"(\\.|[^"\\])*"/g, function (m) {
+                 if (m.indexOf('c-') === -1) return '<span class="c-str">' + m + '</span>';
+                 return m;
+               });
+  }
+
+  // ---- Helpers ----
+
+  function fmtVal(v) {
+    if (v === null || v === undefined) return "<nil>";
+    if (typeof v === "string") return JSON.stringify(v);
+    if (Array.isArray(v)) return "[" + v.join(", ") + "]";
+    if (typeof v === "object") return JSON.stringify(v);
+    return "" + v;
+  }
+
+  function esc(s) {
+    var d = document.createElement("span");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function rep(s, n) { var r = ""; for (var i = 0; i < n; i++) r += s; return r; }
+
+  function setOk() { statusEl.textContent = "OK"; statusEl.className = "status ok"; }
+  function setErr(msg) {
+    statusEl.textContent = "Hata";
+    statusEl.className = "status err";
+  }
+
+  // Initial render
+  render();
+})();
+</script>
+</body>
+</html>
